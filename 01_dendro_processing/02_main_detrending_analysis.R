@@ -1,5 +1,5 @@
 # ==============================================================================
-# 03_main_detrending_analysis.R
+# 02_main_detrending_analysis.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:

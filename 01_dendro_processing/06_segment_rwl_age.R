@@ -1,5 +1,5 @@
 # ==============================================================================
-# 07_segment_rwl_age.R
+# 06_segment_rwl_age.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:

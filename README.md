@@ -12,7 +12,7 @@ The project is now organised into the following directories, reflecting a modula
 
 *   **`01_dendro_processing`**:
     *   **Goal**: Process raw tree-ring width (RWL) files into standardised chronologies.
-    *   **Key scripts**: `03_main_detrending_analysis.R`
+    *   **Key scripts**: `02_main_detrending_analysis.R`
     *   **Input**: Raw `.rwl` files.
     *   **Output**: Standardised (`.std`) and Residual (`.res`) chronologies, Quality Control Plots.
 

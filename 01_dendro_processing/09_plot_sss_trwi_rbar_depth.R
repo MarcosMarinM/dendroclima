@@ -1,5 +1,5 @@
 # ==============================================================================
-# 10_plot_sss_trwi_rbar_depth.R
+# 09_plot_sss_trwi_rbar_depth.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:

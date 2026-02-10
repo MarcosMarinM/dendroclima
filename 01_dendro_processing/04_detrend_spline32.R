@@ -1,5 +1,5 @@
 # ==============================================================================
-# 05_detrend_spline32.R
+# 04_detrend_spline32.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:

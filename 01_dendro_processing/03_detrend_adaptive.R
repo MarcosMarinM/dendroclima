@@ -1,5 +1,5 @@
 # ==============================================================================
-# 04_detrend_adaptive.R
+# 03_detrend_adaptive.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:
