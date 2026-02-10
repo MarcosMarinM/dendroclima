@@ -1,0 +1,16 @@
+# Carpetas excluidas
+archive_deprecated/
+
+# Documentos y binarios excluidos
+*.pdf
+*.docx
+*.xlsx
+*.pptx
+
+# Archivos de sistema y temporales (imprescindible en Mac)
+.DS_Store
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+.Rapp.history
