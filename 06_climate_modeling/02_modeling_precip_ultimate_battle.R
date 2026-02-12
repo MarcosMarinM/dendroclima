@@ -1,66 +1,71 @@
 # ==============================================================================
 # 02_modeling_precip_ultimate_battle.R
 # Author: Marcos Marín-Martín
-# Date: 2026-02-09
+# Date: 2026-02-12
 # Description:
-#   Comprehensive Climate Modeling "Ultimate Battle" (19 Models).
-#   An extensive comparison of 19 statistical models for predicting precipitation,
-#   integrating local atmospheric dynamics (Wind, Pressure, Humidity) with 
-#   large-scale teleconnection indices (NAO, AMO, Western Mediterranean Oscillation Dipole).
-#
-#   Methodology:
-#   - Integrates separate data sources: Precipitation (Station), Indices (NAO, AMO), and Reanalysis (NetCDF).
-#   - Calculates a custom dipole index (Atlas vs Ireland Zonal Wind).
-#   - Tests nested models ranging from simple univariate regressions to complex multivariable combinations.
-#   - Generates explicit regression equations for each model.
-#
-#   Inputs:
-#   - Precipitation data.
-#   - Teleconnection indices (NAO, AMO).
-#   - NetCDF atmospheric data.
-#
-#   Outputs:
-#   - Detailed ranking table (R2 adj, AIC).
-#   - Specific regression equations.
-#   - "Lollipop" efficiency plot.
+#   Advanced climate modeling: linear, interactions, stepwise & GAMs.
+#   Robust to missing data. 
+#   Integrates: 
+#     - Station data (precip)
+#     - Teleconnections (NAO, AMO, MOI)
+#     - Reanalysis (NetCDF)
+#     - External forcing (solar, volcanoes)
 # ==============================================================================
 
 library(ncdf4)
-library(dplyr)
 library(ggplot2)
 library(tidyr)
 library(zoo)
+library(mgcv)
+library(MASS)   
+library(dplyr)
 
 # ==============================================================================
-# 1. PARAMETERS
+# 1. PARAMETERS & PATHS
 # ==============================================================================
+# --- INPUT FILES (STATION & INDICES) ---
 INPUT_PRECIP_FILE <- "PLACEHOLDER/path/to/precip_media.txt"
+INPUT_MOI_FILE    <- "PLACEHOLDER/path/to/moi_index.txt"
 INPUT_NAO_FILE    <- "PLACEHOLDER/path/to/nao_index.txt"
 INPUT_AMO_FILE    <- "PLACEHOLDER/path/to/amo_index.txt"
+INPUT_SOLAR_FILE  <- "PLACEHOLDER/path/to/solar_forcing.txt"
+INPUT_VOLC_FILE   <- "PLACEHOLDER/path/to/volc_forcing.txt"
+
+# --- REANALYSIS DATA (NETCDF DIRECTORY) ---
 DIR_NETCDF        <- "PLACEHOLDER/path/to/20th_century_reanalysis/"
 
-# Box Definitions
+# --- GEOMETRIC DEFINITIONS ---
 BOX_ATLAS   <- list(lat=c(30, 37), lon=c(350, 5))
 BOX_IRELAND <- list(lat=c(50, 60), lon=c(340, 360))
 
-# NetCDF Filenames
-FILE_UWND   <- file.path(DIR_NETCDF, "uwnd.mon.mean.nc")
-FILE_VWND   <- file.path(DIR_NETCDF, "vwnd.mon.mean.nc")
-FILE_OMEGA  <- file.path(DIR_NETCDF, "omega.mon.mean.nc")
-FILE_PRMSL  <- file.path(DIR_NETCDF, "prmsl.mon.mean.nc")
-FILE_RHUM   <- file.path(DIR_NETCDF, "rhum.mon.mean.nc")        # Levels (850hPa)
-FILE_PRWTR  <- file.path(DIR_NETCDF, "pr_wtr.eatm.mon.mean.nc") 
-FILE_TCDC   <- file.path(DIR_NETCDF, "tcdc.eatm.mon.mean.nc")
+# --- NETCDF FILENAMES ---
+FILE_UWND   <- file.path(DIR_NETCDF, "uwnd.mon.mean.nc")        # Zonal Wind
+FILE_VWND   <- file.path(DIR_NETCDF, "vwnd.mon.mean.nc")        # Meridional Wind
+FILE_OMEGA  <- file.path(DIR_NETCDF, "omega.mon.mean.nc")       # Vertical Velocity
+FILE_PRMSL  <- file.path(DIR_NETCDF, "prmsl.mon.mean.nc")       # Surface Pressure
+FILE_RHUM   <- file.path(DIR_NETCDF, "rhum.mon.mean.nc")        # Relative Humidity
+FILE_PRWTR  <- file.path(DIR_NETCDF, "pr_wtr.eatm.mon.mean.nc") # Precipitable Water
+FILE_TCDC   <- file.path(DIR_NETCDF, "tcdc.eatm.mon.mean.nc")   # Total Cloud Cover
 
 # ==============================================================================
-# 2. HELPER FUNCTIONS
+# 2. HELPER FUNCTIONS (NETCDF EXTRACTION)
 # ==============================================================================
 
 get_level <- function(file, var, level, box) {
+  if(!file.exists(file)) return(NULL)
   nc <- nc_open(file)
   on.exit(nc_close(nc))
   
-  levs <- ncvar_get(nc, "level"); lev_idx <- which.min(abs(levs - level))
+  levs <- ncvar_get(nc, "level")
+  # Si hay niveles, buscar el más cercano. Si no, ignorar.
+  if(!is.null(levs)) {
+    lev_idx <- which.min(abs(levs - level))
+    start_vec <- c(1,1,lev_idx,1)
+    count_vec <- c(-1,-1,1,-1)
+  } else {
+    start_vec <- c(1,1,1)
+    count_vec <- c(-1,-1,-1)
+  }
   
   lat <- ncvar_get(nc,"lat"); lon <- ncvar_get(nc,"lon")
   time <- ncvar_get(nc,"time"); dates <- as.Date(time/24, origin="1800-01-01")
@@ -68,21 +73,25 @@ get_level <- function(file, var, level, box) {
   idx_lat <- which(lat >= box$lat[1] & lat <= box$lat[2])
   idx_lon <- c(which(lon >= box$lon[1]), which(lon <= box$lon[2]))
   
-  raw <- ncvar_get(nc, var, start=c(1,1,lev_idx,1), count=c(-1,-1,1,-1))
-  val_box <- raw[idx_lon, idx_lat, ]
+  # Carga segura dependiendo de dimensiones
+  raw <- tryCatch({
+    ncvar_get(nc, var, start=start_vec, count=count_vec)
+  }, error = function(e) return(NULL))
   
+  if(is.null(raw)) return(NULL)
+  
+  val_box <- raw[idx_lon, idx_lat, ]
   series <- apply(val_box, 3, mean, na.rm=TRUE)
   
   df <- data.frame(year=as.numeric(format(dates,"%Y")), month=as.numeric(format(dates,"%m")), val=series)
   df$clim_year <- ifelse(df$month==12, df$year+1, df$year)
   
   df %>% filter(month %in% c(12,1,2)) %>% 
-    group_by(clim_year) %>% 
-    summarise(mean=mean(val, na.rm=TRUE)) %>% 
-    rename(year=clim_year)
+    group_by(clim_year) %>% summarise(mean=mean(val, na.rm=TRUE)) %>% rename(year=clim_year)
 }
 
 get_sfc <- function(file, var, box) {
+  if(!file.exists(file)) return(NULL)
   nc <- nc_open(file)
   on.exit(nc_close(nc))
   
@@ -92,174 +101,279 @@ get_sfc <- function(file, var, box) {
   idx_lat <- which(lat >= box$lat[1] & lat <= box$lat[2])
   idx_lon <- c(which(lon >= box$lon[1]), which(lon <= box$lon[2]))
   
-  raw <- ncvar_get(nc, var)
-  val_box <- raw[idx_lon, idx_lat, ]
+  # Carga DIRECTA sin buscar niveles (Start: Lon, Lat, Time)
+  raw <- tryCatch({
+    ncvar_get(nc, var, start=c(min(idx_lon), min(idx_lat), 1), 
+              count=c(length(idx_lon), length(idx_lat), -1))
+  }, error = function(e) return(NULL))
   
-  series <- apply(val_box, 3, mean, na.rm=TRUE)
+  if(is.null(raw)) return(NULL)
+  
+  # Promedio espacial
+  series <- apply(raw, 3, mean, na.rm=TRUE)
   
   df <- data.frame(year=as.numeric(format(dates,"%Y")), month=as.numeric(format(dates,"%m")), val=series)
   df$clim_year <- ifelse(df$month==12, df$year+1, df$year)
   
   df %>% filter(month %in% c(12,1,2)) %>% 
-    group_by(clim_year) %>% 
-    summarise(mean=mean(val, na.rm=TRUE)) %>% 
-    rename(year=clim_year)
+    group_by(clim_year) %>% summarise(mean=mean(val, na.rm=TRUE)) %>% rename(year=clim_year)
 }
 
 # ==============================================================================
-# 3. DATA LOADING
+# 3. ROBUST DATA LOADING
 # ==============================================================================
-message("--- CARGANDO VARIABLES... ---")
+message("\n--- 1. CARGANDO DATOS (modo robusto) ---")
+data_list <- list()
 
-# Precipitation
-raw_p <- read.table(INPUT_PRECIP_FILE, header=TRUE)
-raw_p$date_obj <- as.Date(as.character(raw_p$date), format="%Y%m%d")
-raw_p$year <- as.numeric(format(raw_p$date_obj, "%Y"))
-raw_p$month <- as.numeric(format(raw_p$date_obj, "%m"))
-raw_p$clim_year <- ifelse(raw_p$month==12, raw_p$year+1, raw_p$year)
+# 3.1 PRECIPITACIÓN (OBLIGATORIA)
+if(file.exists(INPUT_PRECIP_FILE)) {
+  raw_p <- read.table(INPUT_PRECIP_FILE, header=TRUE)
+  raw_p$date_obj <- as.Date(as.character(raw_p$date), format="%Y%m%d")
+  raw_p$year <- as.numeric(format(raw_p$date_obj, "%Y"))
+  raw_p$month <- as.numeric(format(raw_p$date_obj, "%m"))
+  raw_p$clim_year <- ifelse(raw_p$month==12, raw_p$year+1, raw_p$year)
+  
+  Y_dat <- raw_p %>% 
+    filter(month %in% c(12,1,2)) %>% 
+    group_by(clim_year) %>% 
+    summarise(PCP=sum(precipitation, na.rm=TRUE), n=n()) %>% 
+    filter(n>=3) %>% 
+    dplyr::select(clim_year, PCP) %>%  
+    rename(year=clim_year)
+  
+  data_list[["PCP"]] <- Y_dat
+  message("✅ Precipitación: OK")
+} else {
+  stop("❌ ERROR: Falta archivo de precipitación.")
+}
 
-Y_dat <- raw_p %>% 
-  filter(month %in% c(12,1,2)) %>% 
-  group_by(clim_year) %>% 
-  summarise(PCP=sum(precipitation, na.rm=TRUE), n=n()) %>% 
-  filter(n>=3) %>% 
-  rename(year=clim_year)
+# 3.2 MOI (Mediterranean Oscillation)
+if(file.exists(INPUT_MOI_FILE)) {
+  raw_moi <- read.table(INPUT_MOI_FILE, header=TRUE)
+  # Formato date: 18060101
+  raw_moi$date_obj <- as.Date(as.character(raw_moi$date), format="%Y%m%d")
+  raw_moi$year <- as.numeric(format(raw_moi$date_obj, "%Y"))
+  raw_moi$month <- as.numeric(format(raw_moi$date_obj, "%m"))
+  raw_moi$clim_year <- ifelse(raw_moi$month==12, raw_moi$year+1, raw_moi$year)
+  
+  X_moi <- raw_moi %>% filter(month %in% c(12,1,2)) %>%
+    group_by(clim_year) %>% summarise(MOI = mean(moi, na.rm=TRUE)) %>% # 'moi' minúscula en tu archivo
+    rename(year=clim_year)
+  
+  data_list[["MOI"]] <- X_moi
+  message("✅ MOI: OK")
+} else { message("⚠️ MOI: No encontrado") }
 
-# Local Atmospheric Variables
-X_u300  <- get_level(FILE_UWND, "uwnd", 300, BOX_ATLAS) %>% rename(U_Atlas = mean)
-X_v300  <- get_level(FILE_VWND, "vwnd", 300, BOX_ATLAS) %>% rename(V_Atlas = mean)
-X_ome   <- get_level(FILE_OMEGA, "omega", 500, BOX_ATLAS) %>% rename(Omega = mean)
-X_rh850 <- get_level(FILE_RHUM, "rhum", 850, BOX_ATLAS) %>% rename(RH_850 = mean)
-X_pres  <- get_sfc(FILE_PRMSL, "prmsl", BOX_ATLAS) %>% rename(Press = mean)
-X_prw   <- get_sfc(FILE_PRWTR, "pr_wtr", BOX_ATLAS) %>% rename(Pr_Wtr = mean)
-X_cld   <- get_sfc(FILE_TCDC, "tcdc", BOX_ATLAS) %>% rename(Clouds = mean)
-X_uIre  <- get_level(FILE_UWND, "uwnd", 300, BOX_IRELAND) %>% rename(U_Ireland = mean)
+# 3.3 OTROS ÍNDICES (NAO, AMO, SOLAR, VOLCANES)
+load_simple_index <- function(path, name, col_val) {
+  if(file.exists(path)) {
+    df <- read.table(path, header=TRUE)
+    # Asumimos columnas estandarizadas o ajustamos aqui
+    # Esta es una versión simplificada
+    if("Year" %in% names(df)) df <- df %>% rename(year=Year)
+    # Filtrar columnas
+    df <- df %>% select(year, all_of(col_val))
+    names(df)[2] <- name
+    return(df)
+  }
+  return(NULL)
+}
 
-# Calculate Dipole Index
-X_dip   <- inner_join(X_u300, X_uIre, by="year") %>% 
-  mutate(DIP_Index = U_Atlas - U_Ireland) %>% 
-  select(year, DIP_Index)
+# Intentos de carga (Ajusta nombres de columnas según tus txt reales)
+if(file.exists(INPUT_NAO_FILE)) data_list[["NAO"]] <- load_simple_index(INPUT_NAO_FILE, "NAO", "NAOmed")
+if(file.exists(INPUT_SOLAR_FILE)) data_list[["SOLAR"]] <- load_simple_index(INPUT_SOLAR_FILE, "TSI", "TSI")
+if(file.exists(INPUT_VOLC_FILE)) data_list[["VOLC"]] <- load_simple_index(INPUT_VOLC_FILE, "AOD", "AOD")
 
-# NAO
-nao_raw <- read.table(INPUT_NAO_FILE, header=TRUE)
-X_nao   <- nao_raw %>% select(Year, NAOmed) %>% rename(year = Year, NAO = NAOmed)
+# 3.4 NETCDF (REANÁLISIS)
+if(dir.exists(DIR_NETCDF)) {
+  # U Wind Atlas
+  tmp <- get_level(FILE_UWND, "uwnd", 300, BOX_ATLAS); if(!is.null(tmp)) data_list[["U_Atlas"]] <- tmp %>% rename(U_Atlas=mean)
+  # U Wind Ireland (para Dipolo)
+  tmp2 <- get_level(FILE_UWND, "uwnd", 300, BOX_IRELAND); 
+  if(!is.null(tmp) && !is.null(tmp2)) {
+    dip <- inner_join(tmp, tmp2, by="year") %>% mutate(DIP_Index = mean.x - mean.y) %>% select(year, DIP_Index)
+    data_list[["DIP_Index"]] <- dip
+  }
+  # Pressure
+  tmp <- get_sfc(FILE_PRMSL, "prmsl", BOX_ATLAS); if(!is.null(tmp)) data_list[["Press"]] <- tmp %>% rename(Press=mean)
+  # RH 850
+  tmp <- get_level(FILE_RHUM, "rhum", 850, BOX_ATLAS); if(!is.null(tmp)) data_list[["RH_850"]] <- tmp %>% rename(RH_850=mean)
+  
+  message("✅ NetCDF: Procesados los disponibles.")
+} else { message("⚠️ NetCDF: Directorio no encontrado.") }
 
-# AMO (Winter Calculation)
-amo_raw <- read.table(INPUT_AMO_FILE, header=FALSE)
-colnames(amo_raw) <- c("Year", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-amo_long <- amo_raw %>%
-  pivot_longer(cols = -Year, names_to = "Month_Name", values_to = "Value") %>%
-  mutate(Month = match(Month_Name, month.abb)) %>%
-  mutate(clim_year = ifelse(Month == 12, Year + 1, Year)) %>%
-  filter(Month %in% c(12, 1, 2)) %>%
-  group_by(clim_year) %>%
-  summarise(AMO = mean(Value, na.rm=TRUE), n=n()) %>%
-  filter(n>=3) %>% 
-  rename(year = clim_year)
-
-# MASTER JOIN
-dat <- Y_dat %>%
-  inner_join(X_u300, by="year") %>% 
-  inner_join(X_v300, by="year") %>%
-  inner_join(X_ome, by="year")  %>% 
-  inner_join(X_pres, by="year") %>%
-  inner_join(X_rh850, by="year")%>% 
-  inner_join(X_prw, by="year")  %>%
-  inner_join(X_cld, by="year")  %>% 
-  inner_join(X_dip, by="year")  %>%
-  inner_join(X_nao, by="year")  %>% 
-  inner_join(amo_long, by="year")
+# 3.5 UNIÓN FINAL
+dat <- Reduce(function(x, y) inner_join(x, y, by="year"), data_list)
+dat <- na.omit(dat)
+message(paste("\n>>> Dataset Final:", nrow(dat), "años. Variables:", paste(names(dat)[-1], collapse=", ")))
 
 # ==============================================================================
-# 4. MODEL LIST
+# 4. DEFINICIÓN DE MODELOS (LINEAR, INTERACCIÓN, GAM)
 # ==============================================================================
-formulas <- list(
-  # --- UNIVARIATE (SIMPLE) ---
+
+# Lista de fórmulas CANDIDATAS (Se filtrarán según datos disponibles)
+candidate_formulas <- list(
+  # --- UNIVARIATE ---
   "M01_Wind"        = "PCP ~ U_Atlas",
   "M02_Pres"        = "PCP ~ Press",
   "M03_Hum850"      = "PCP ~ RH_850",
-  "M04_Omega"       = "PCP ~ Omega",
-  "M05_PrWtr"       = "PCP ~ Pr_Wtr",
-  "M06_Clouds"      = "PCP ~ Clouds",
   "M07_NAO"         = "PCP ~ NAO",
-  "M08_AMO"         = "PCP ~ AMO",
-  "M09_Dipolo"      = "PCP ~ DIP_Index",
+  "M09_MOI"         = "PCP ~ MOI",
+  "M_Solar"         = "PCP ~ TSI",
   
-  # --- BIVARIATE (MIXED) ---
+  # --- MULTIVARIATE (ADDITIVE) ---
   "M10_Wind_Pres"   = "PCP ~ U_Atlas + Press",
-  "M11_Wind_Hum"    = "PCP ~ U_Atlas + RH_850",
-  "M12_Pres_Hum"    = "PCP ~ Press + RH_850",
-  "M13_Sup_Base"    = "PCP ~ NAO + DIP_Index",
-  
-  # --- TRIVARIATE (PHYSICS) ---
+  "M13_Sup_Base"    = "PCP ~ NAO + MOI",
   "M14_PRO_Local"   = "PCP ~ U_Atlas + Press + RH_850",
-  "M15_Vector3D"    = "PCP ~ U_Atlas + V_Atlas + Press",
+  "M19_ALL_STARS"   = "PCP ~ NAO + MOI + U_Atlas + Press + RH_850",
   
-  # --- MULTIVARIATE (COMBOS) ---
-  "M16_PRO_Clouds"  = "PCP ~ U_Atlas + Press + RH_850 + Clouds",
-  "M17_Combo_NAO"   = "PCP ~ NAO + U_Atlas + Press + RH_850",
-  "M18_Combo_AMO"   = "PCP ~ U_Atlas + Press + RH_850 + AMO",
-  "M19_ALL_STARS"   = "PCP ~ NAO + AMO + U_Atlas + Press + RH_850"
+  # --- INTERACTIONS (SUPERVISOR TASK) ---
+  # El ':' o '*' indica interacción. ¿Cambia el efecto de NAO según MOI?
+  "M_Int_NAO_MOI"   = "PCP ~ NAO * MOI", 
+  "M_Int_Wind_Pres" = "PCP ~ U_Atlas * Press",
+  
+  # --- GAMs (SUPERVISOR TASK: NO LINEAL / NO ESTACIONARIO) ---
+  # s() indica "smooth term" (spline)
+  "GAM_Trend"       = "PCP ~ s(year)",            # Tendencia temporal pura
+  "GAM_Phy"         = "PCP ~ s(Press) + s(RH_850)", # Relaciones no lineales
+  "GAM_Dyn"         = "PCP ~ s(NAO) + s(MOI)"
 )
 
-# ==============================================================================
-# 5. EXECUTION LOOP
-# ==============================================================================
-ranking_df <- data.frame(Model=character(), R2_Adj=numeric(), AIC=numeric(), Num_Vars=numeric(), stringsAsFactors=FALSE)
+# Filtrado de fórmulas válidas
+valid_models <- list()
+avail_vars <- names(dat)
 
-cat("\n\n################################################################\n")
-cat("   📚 ENCICLOPEDIA DE MODELOS (M01 - M19)\n")
-cat("################################################################\n\n")
-
-for(name in names(formulas)) {
-  mod <- lm(as.formula(formulas[[name]]), data = dat)
-  s <- summary(mod)
-  cf <- coef(mod)
+for(nm in names(candidate_formulas)) {
+  f <- candidate_formulas[[nm]]
+  # Extraer variables limpias
+  vars <- all.vars(as.formula(f))
+  vars <- vars[vars != "PCP" & vars != "s"] # Quitar Y y función spline
   
-  ranking_df[nrow(ranking_df)+1,] <- list(name, s$adj.r.squared*100, AIC(mod), length(cf)-1)
-  
-  cat(paste0(">>> ", name, "\n"))
-  cat(sprintf("   R2 Adj: %.2f%% | AIC: %.1f\n", s$adj.r.squared*100, AIC(mod)))
-  
-  # Generate Equation String
-  eq_str <- sprintf("PCP = %.2f", cf[1])
-  for(i in 2:length(cf)) {
-    signo <- ifelse(cf[i] >= 0, "+", "-")
-    val   <- abs(cf[i])
-    var   <- names(cf)[i]
-    eq_str <- paste0(eq_str, sprintf(" %s %.4f·%s", signo, val, var))
+  if(all(vars %in% avail_vars)) {
+    valid_models[[nm]] <- f
   }
-  cat(paste0("   Eq: ", eq_str, "\n"))
-  cat("----------------------------------------------------------------\n")
 }
 
 # ==============================================================================
-# 6. VISUALIZATION
+# 5. EJECUCIÓN Y STEPWISE
 # ==============================================================================
-ranking_df$Model <- factor(ranking_df$Model, levels=ranking_df$Model[order(ranking_df$R2_Adj)])
+results <- data.frame(Model=character(), Type=character(), R2_Adj=numeric(), AIC=numeric(), Equation=character(), stringsAsFactors=FALSE)
 
-# Scale AIC for size (Inverted: Lower AIC = Larger Dot)
-min_aic <- min(ranking_df$AIC); max_aic <- max(ranking_df$AIC)
-ranking_df$Efficiency <- (max_aic - ranking_df$AIC) + 10 # Visual offset
+message("\n--- 2. EJECUTANDO MODELOS ---")
 
-p <- ggplot(ranking_df, aes(x=R2_Adj, y=Model)) +
-  geom_segment(aes(x=0, xend=R2_Adj, y=Model, yend=Model), color="grey60", linetype="dotted") +
-  geom_point(aes(color=as.factor(Num_Vars), size=Efficiency), alpha=0.9) +
+# A) MODELOS DEFINIDOS (LM y GAM)
+for(name in names(valid_models)) {
+  f_str <- valid_models[[name]]
   
-  geom_text(aes(label=sprintf("%.1f%%", R2_Adj)), hjust=-0.3, size=3.5, fontface="bold") +
+  if(grepl("GAM", name)) {
+    # --- Generalized Additive Model ---
+    mod <- gam(as.formula(f_str), data=dat)
+    s_mod <- summary(mod)
+    
+    r2  <- s_mod$r.sq
+    aic <- AIC(mod)
+    type <- "GAM"
+    
+    # --- CONSTRUIR "ECUACIÓN" GAM (Intercepto + EDF de cada variable) ---
+    # 1. Intercepto
+    beta0 <- coef(mod)[1]
+    eq <- sprintf("%.2f", beta0)
+    
+    # 2. Términos Suavizados (Splines)
+    if(!is.null(s_mod$s.table)) {
+      # s_mod$s.table contiene los EDF en la primera columna
+      for(k in 1:nrow(s_mod$s.table)) {
+        var_name <- rownames(s_mod$s.table)[k] # Ej: "s(Press)"
+        edf_val  <- s_mod$s.table[k, "edf"]    # El valor de curvatura
+        
+        # Formato: + s(Var)[edf=2.4]
+        eq <- paste0(eq, sprintf(" + %s[edf=%.2f]", var_name, edf_val))
+      }
+    }
+    
+    # 3. Términos Lineales dentro del GAM (si los hubiera)
+    if(!is.null(s_mod$p.table)) {
+      # Saltamos el intercepto (row 1) si ya lo pusimos
+      p_rows <- rownames(s_mod$p.table)
+      p_rows <- p_rows[p_rows != "(Intercept)"]
+      
+      for(p_var in p_rows) {
+        val <- s_mod$p.table[p_var, "Estimate"]
+        signo <- ifelse(val >= 0, "+", "")
+        eq <- paste0(eq, sprintf(" %s%.3f*%s", signo, val, p_var))
+      }
+    }
+    
+  } else {
+    # --- Linear Model (Standard & Interaction) ---
+    mod <- lm(as.formula(f_str), data=dat)
+    r2  <- summary(mod)$adj.r.squared
+    aic <- AIC(mod)
+    type <- "LM"
+    
+    # Ecuación lineal estándar
+    cf <- coef(mod)
+    eq <- sprintf("%.2f", cf[1])
+    for(i in 2:length(cf)) {
+      if(is.na(cf[i])) next # Saltar coeficientes NA si los hubiera
+      eq <- paste0(eq, sprintf(" %+0.3f*%s", cf[i], names(cf)[i]))
+    }
+  }
   
-  scale_color_viridis_d(option = "plasma", name="N.º variables", end=0.9) +
-  scale_size(range = c(2, 8), guide="none") + 
+  results[nrow(results)+1,] <- list(name, type, r2*100, aic, eq)
+}
+
+# B) STEPWISE 
+if(ncol(dat) > 3) {
+  message(">>> Ejecutando Stepwise Selection...")
+  full_formula <- as.formula(paste("PCP ~", paste(names(dat)[!names(dat) %in% c("year","PCP")], collapse=" + ")))
+  full_mod <- lm(full_formula, data=dat)
   
-  labs(title="Batalla de modelos",
-       subtitle="Más a la derecha = Mejor predicción. Bola más grande = modelo más eficiente (AIC).",
-       x="R2 ajustado (%)", y="") +
+  # Stepwise direction="both" busca el óptimo AIC
+  step_mod <- stepAIC(full_mod, direction="both", trace=0)
   
+  # --- EXTRAER ECUACIÓN (NUEVO) ---
+  cf <- coef(step_mod)
+  eq_step <- sprintf("%.2f", cf[1])
+  for(i in 2:length(cf)) {
+    val <- cf[i]
+    signo <- ifelse(val >= 0, "+", "") # El negativo ya viene en el número
+    var_name <- names(cf)[i]
+    eq_step <- paste0(eq_step, sprintf(" %s%.4f*%s", signo, val, var_name))
+  }
+  
+  results[nrow(results)+1,] <- list(
+    "AUTO_Stepwise", 
+    "STEP", 
+    summary(step_mod)$adj.r.squared*100, 
+    AIC(step_mod), 
+    eq_step  
+  )
+}
+
+# ==============================================================================
+# 6. VISUALIZACIÓN Y RESULTADOS
+# ==============================================================================
+results$R2_Adj <- round(results$R2_Adj, 2)
+results <- results %>% arrange(desc(R2_Adj))
+
+# Imprimir Tabla
+print(results %>% select(Model, Type, R2_Adj, AIC))
+
+# Gráfico Lollipop Mejorado
+results$Model <- factor(results$Model, levels=results$Model[order(results$R2_Adj)])
+
+p <- ggplot(results, aes(x=R2_Adj, y=Model, color=Type)) +
+  geom_segment(aes(x=0, xend=R2_Adj, y=Model, yend=Model), color="grey80", linetype="dotted") +
+  geom_point(aes(size=2000/AIC), alpha=0.8) + # Tamaño inversamente prop. al AIC
+  geom_text(aes(label=paste0(R2_Adj, "%")), hjust=-0.4, size=3) +
+  scale_color_manual(values=c("LM"="steelblue", "GAM"="purple", "STEP"="orange")) +
+  labs(title="Comparativa de modelos climáticos",
+       subtitle="LM: Lineal | GAM: no lineal | STEP: automático",
+       x="Varianza explicada (R2 adj %)", y="") +
   theme_minimal() +
-  theme(axis.text.y = element_text(face="bold", size=9),
-        panel.grid.major.y = element_blank()) +
-  xlim(0, max(ranking_df$R2_Adj) + 8)
+  theme(legend.position="bottom")
 
-# Print Final Ranking
-print(ranking_df %>% select(Model, R2_Adj, AIC, Num_Vars) %>% arrange(desc(R2_Adj)))
 print(p)
+
+message("\n✅ PROCESO FINALIZADO.")
