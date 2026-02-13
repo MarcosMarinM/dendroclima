@@ -376,4 +376,7 @@ p <- ggplot(results, aes(x=R2_Adj, y=Model, color=Type)) +
 
 print(p)
 
+message("\n🏆 ECUACIÓN GANADORA (STEPWISE):")
+print(results %>% filter(Type == "STEP") %>% pull(Equation))
+
 message("\n✅ PROCESO FINALIZADO.")

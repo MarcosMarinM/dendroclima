@@ -1,11 +1,11 @@
 # ==============================================================================
 # 03_validation_model.R
 # Author: Marcos Marín-Martín
-# Date: 2026-02-12
+# Date: 2026-02-13
 # Description:
-#   Generic Validation & Reconstruction Script.
+#   Generic validation & reconstruction script.
 #   - Takes ANY linear model formula as input.
-#   - Loads necessary data.
+#   - robustly loads data (handling different formats like AMO wide, MOI date, etc.).
 #   - Exports statistical diagnostics to a specific output folder.
 #   - Performs Leave-One-Out Cross-Validation (LOOCV).
 # ==============================================================================
@@ -23,11 +23,11 @@ library(dplyr)  # Loaded last
 # ==============================================================================
 
 # --- [IMPORTANTE] PEGA AQUÍ LA FÓRMULA GANADORA DEL STEP 02 ---
-WINNING_FORMULA_STR <- "PCP ~ xxx + xxx + xxx"  # Ejemplo: "PCP ~ MOI + NAO + AMO + TSI + AOD + U_Atlas + Press + RH_850 + Omega + Clouds"
+# Ejemplo: WINNING_FORMULA_STR <- "PCP ~ MOI + NAO + RH_850"
+WINNING_FORMULA_STR <- "PCP ~ xxx + xxx + xxx" 
 
-# --- CONFIGURACIÓN DE SALIDA (NUEVO) ---
-# Define dónde quieres que se guarden el .txt y el .csv
-OUTPUT_DIR <- "./results/validation/" 
+# --- CONFIGURACIÓN DE SALIDA ---
+OUTPUT_DIR      <- "/PLACEHOLDER/path/to/output/03_validation_model" # Cambia esto a tu ruta deseada
 OUTPUT_TXT_NAME <- "03_model_diagnostics.txt"
 OUTPUT_CSV_NAME <- "03_reconstruction_data.csv"
 
@@ -59,33 +59,112 @@ FILE_TCDC   <- file.path(DIR_NETCDF, "tcdc.eatm.mon.mean.nc")
 if(!dir.exists(OUTPUT_DIR)) dir.create(OUTPUT_DIR, recursive=TRUE)
 
 # ==============================================================================
-# 2. ROBUST DATA LOADING
+# 2. ROBUST DATA LOADING FUNCTIONS
 # ==============================================================================
-get_level_val <- function(file, var, level, box) {
+
+# --- A. FUNCIÓN INTELIGENTE PARA NETCDF (Detecta Niveles vs Superficie) ---
+get_netcdf_val <- function(file, var, level, box) {
   if(!file.exists(file)) return(NULL)
   nc <- nc_open(file); on.exit(nc_close(nc))
-  levs <- ncvar_get(nc, "level")
-  if(!is.null(levs)) {
-    lev_idx <- which.min(abs(levs - level))
-    start_v <- c(1,1,lev_idx,1); count_v <- c(-1,-1,1,-1)
-  } else { start_v <- c(1,1,1); count_v <- c(-1,-1,-1) }
   
+  # 1. Detectar si tiene dimensión vertical (level)
+  has_level <- "level" %in% names(nc$dim) || "level" %in% names(nc$var)
+  
+  # 2. Configurar índices Lat/Lon
   lat <- ncvar_get(nc,"lat"); lon <- ncvar_get(nc,"lon")
-  time <- ncvar_get(nc,"time"); dates <- as.Date(time/24, origin="1800-01-01")
-  
   idx_lat <- which(lat >= box$lat[1] & lat <= box$lat[2])
   idx_lon <- c(which(lon >= box$lon[1]), which(lon <= box$lon[2]))
   
+  if(length(idx_lat) == 0 || length(idx_lon) == 0) return(NULL)
+  
+  # 3. Configurar lectura según dimensiones
+  if(has_level) {
+    levs <- ncvar_get(nc, "level")
+    lev_idx <- which.min(abs(levs - level))
+    start_v <- c(min(idx_lon), min(idx_lat), lev_idx, 1)
+    count_v <- c(length(idx_lon), length(idx_lat), 1, -1)
+  } else {
+    # Superficie (sin nivel)
+    start_v <- c(min(idx_lon), min(idx_lat), 1)
+    count_v <- c(length(idx_lon), length(idx_lat), -1)
+  }
+  
+  # 4. Leer y Promediar
   raw <- tryCatch(ncvar_get(nc, var, start=start_v, count=count_v), error=function(e) NULL)
   if(is.null(raw)) return(NULL)
   
-  val_box <- raw[idx_lon, idx_lat, ]
-  series <- apply(val_box, 3, mean, na.rm=TRUE)
+  # Detectar dimensión temporal (siempre es la última)
+  time_dim <- length(dim(raw))
+  series <- apply(raw, time_dim, mean, na.rm=TRUE)
   
+  # 5. Formatear fechas
+  time <- ncvar_get(nc,"time"); dates <- as.Date(time/24, origin="1800-01-01")
   df <- data.frame(year=as.numeric(format(dates,"%Y")), month=as.numeric(format(dates,"%m")), val=series)
   df$clim_year <- ifelse(df$month==12, df$year+1, df$year)
-  df %>% filter(month %in% c(12,1,2)) %>% group_by(clim_year) %>% summarise(mean=mean(val, na.rm=TRUE)) %>% rename(year=clim_year)
+  
+  df %>% filter(month %in% c(12,1,2)) %>% group_by(clim_year) %>% 
+    summarise(mean=mean(val, na.rm=TRUE)) %>% rename(year=clim_year)
 }
+
+# --- B. FUNCIÓN UNIVERSAL PARA ÍNDICES (Detecta Formatos Raros) ---
+load_index_universal <- function(path, name, col_target) {
+  if(!file.exists(path)) return(NULL)
+  
+  # Intentar leer con cabecera
+  raw <- read.table(path, header=TRUE, stringsAsFactors=FALSE)
+  
+  # CASO 1: ARCHIVO TIPO AMO NOAA (Muchos meses en columnas, sin cabecera real o detectada mal)
+  # Si tiene más de 5 columnas, asumimos formato ancho (Year + 12 meses)
+  if(ncol(raw) > 5) {
+    # Recargar sin cabecera para asegurar limpieza
+    raw <- read.table(path, header=FALSE) 
+    colnames(raw) <- c("Year", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+    
+    # Procesar de Ancho a Largo (DJF)
+    df_out <- raw %>%
+      pivot_longer(cols = -Year, names_to = "Month_Name", values_to = "Value") %>%
+      mutate(Month = match(Month_Name, month.abb)) %>%
+      mutate(clim_year = ifelse(Month == 12, Year + 1, Year)) %>%
+      filter(Month %in% c(12, 1, 2)) %>%
+      group_by(clim_year) %>%
+      summarise(val = mean(Value, na.rm=TRUE)) %>%
+      rename(year = clim_year)
+    
+    names(df_out)[2] <- name
+    return(df_out)
+  }
+  
+  # CASO 2: FORMATO MOI (Columna 'date' tipo 18060101)
+  cols_lower <- tolower(names(raw))
+  if(any(grepl("date", cols_lower))) {
+    date_col <- names(raw)[grep("date", cols_lower)[1]]
+    raw$date_obj <- as.Date(as.character(raw[[date_col]]), format="%Y%m%d")
+    raw$year <- as.numeric(format(raw$date_obj, "%Y"))
+    raw$month <- as.numeric(format(raw$date_obj, "%m"))
+    raw$clim_year <- ifelse(raw$month==12, raw$year+1, raw$year)
+    
+    df_out <- raw %>% filter(month %in% c(12,1,2)) %>% 
+      group_by(clim_year) %>% summarise(val=mean(get(col_target), na.rm=T)) %>% 
+      rename(year=clim_year)
+    
+    names(df_out)[2] <- name
+    return(df_out)
+  }
+  
+  # CASO 3: FORMATO ESTÁNDAR (Year, Val)
+  # Buscar columna año
+  idx_year <- grep("year|yr|time", cols_lower)
+  if(length(idx_year) > 0) names(raw)[idx_year[1]] <- "year" else names(raw)[1] <- "year"
+  
+  if(col_target %in% names(raw)) {
+    df_out <- raw %>% select(year, all_of(col_target)) %>% rename(val=all_of(col_target))
+    names(df_out)[2] <- name
+    return(df_out)
+  }
+  
+  return(NULL)
+}
+
 
 message("\n--- 1. CARGANDO DATOS ---")
 data_list <- list()
@@ -102,41 +181,23 @@ if(file.exists(INPUT_PRECIP_FILE)) {
     filter(n>=3) %>% select(clim_year, PCP) %>% rename(year=clim_year)
 } else { stop("❌ ERROR: Precip file missing.") }
 
-# 2.2 INDICES
-load_idx <- function(path, name, col_name) {
-  if(file.exists(path)) {
-    df <- read.table(path, header=TRUE)
-    if("date" %in% names(df)) { # MOI case
-      df$date_obj <- as.Date(as.character(df$date), format="%Y%m%d")
-      df$year <- as.numeric(format(df$date_obj, "%Y")); df$month <- as.numeric(format(df$date_obj, "%m"))
-      df$clim_year <- ifelse(df$month==12, df$year+1, df$year)
-      df <- df %>% filter(month %in% c(12,1,2)) %>% group_by(clim_year) %>% 
-        summarise(val=mean(get(col_name), na.rm=T)) %>% rename(year=clim_year)
-    } else { 
-      if("Year" %in% names(df)) df <- df %>% rename(year=Year)
-      df <- df %>% select(year, all_of(col_name)) %>% rename(val=all_of(col_name))
-    }
-    names(df)[2] <- name
-    return(df)
-  }
-  return(NULL)
-}
+# 2.2 INDICES (Usando la función Universal)
+data_list[["MOI"]]   <- load_index_universal(INPUT_MOI_FILE, "MOI", "moi")
+data_list[["NAO"]]   <- load_index_universal(INPUT_NAO_FILE, "NAO", "NAOmed")
+data_list[["AMO"]]   <- load_index_universal(INPUT_AMO_FILE, "AMO", "Value") # 'Value' es dummy aquí, lo procesa especial
+data_list[["TSI"]]   <- load_index_universal(INPUT_SOLAR_FILE, "TSI", "TSI")
+data_list[["AOD"]]   <- load_index_universal(INPUT_VOLC_FILE, "AOD", "AOD")
 
-data_list[["MOI"]]   <- load_idx(INPUT_MOI_FILE, "MOI", "moi")
-data_list[["NAO"]]   <- load_idx(INPUT_NAO_FILE, "NAO", "NAOmed")
-data_list[["AMO"]]   <- load_idx(INPUT_AMO_FILE, "AMO", "AMO")
-data_list[["TSI"]]   <- load_idx(INPUT_SOLAR_FILE, "TSI", "TSI")
-data_list[["AOD"]]   <- load_idx(INPUT_VOLC_FILE, "AOD", "AOD")
-
-# 2.3 REANALYSIS VARS
+# 2.3 REANALYSIS VARS (Usando la función Inteligente)
 if(dir.exists(DIR_NETCDF)) {
-  tmp <- get_level_val(FILE_UWND, "uwnd", 300, BOX_ATLAS); if(!is.null(tmp)) data_list[["U_Atlas"]] <- tmp %>% rename(U_Atlas=mean)
-  tmp <- get_level_val(FILE_PRMSL, "prmsl", -999, BOX_ATLAS); if(!is.null(tmp)) data_list[["Press"]] <- tmp %>% rename(Press=mean)
-  tmp <- get_level_val(FILE_RHUM, "rhum", 850, BOX_ATLAS); if(!is.null(tmp)) data_list[["RH_850"]] <- tmp %>% rename(RH_850=mean)
-  tmp <- get_level_val(FILE_OMEGA, "omega", 500, BOX_ATLAS); if(!is.null(tmp)) data_list[["Omega"]] <- tmp %>% rename(Omega=mean)
-  tmp <- get_level_val(FILE_TCDC, "tcdc", -999, BOX_ATLAS); if(!is.null(tmp)) data_list[["Clouds"]] <- tmp %>% rename(Clouds=mean)
+  tmp <- get_netcdf_val(FILE_UWND, "uwnd", 300, BOX_ATLAS); if(!is.null(tmp)) data_list[["U_Atlas"]] <- tmp %>% rename(U_Atlas=mean)
+  tmp <- get_netcdf_val(FILE_PRMSL, "prmsl", -999, BOX_ATLAS); if(!is.null(tmp)) data_list[["Press"]] <- tmp %>% rename(Press=mean)
+  tmp <- get_netcdf_val(FILE_RHUM, "rhum", 850, BOX_ATLAS); if(!is.null(tmp)) data_list[["RH_850"]] <- tmp %>% rename(RH_850=mean)
+  tmp <- get_netcdf_val(FILE_OMEGA, "omega", 500, BOX_ATLAS); if(!is.null(tmp)) data_list[["Omega"]] <- tmp %>% rename(Omega=mean)
+  tmp <- get_netcdf_val(FILE_TCDC, "tcdc", -999, BOX_ATLAS); if(!is.null(tmp)) data_list[["Clouds"]] <- tmp %>% rename(Clouds=mean)
 }
 
+# MERGE FINAL
 dat <- Reduce(function(x, y) inner_join(x, y, by="year"), data_list)
 dat <- na.omit(dat)
 message(paste("✅ Datos consolidados:", nrow(dat), "años."))
@@ -152,7 +213,7 @@ model <- lm(final_formula, data=dat)
 # Construir ruta completa del archivo de salida
 out_txt_path <- file.path(OUTPUT_DIR, OUTPUT_TXT_NAME)
 
-sink(out_txt_path) # Redirigir salida al archivo en la carpeta definida
+sink(out_txt_path) 
 
 cat("==============================================================\n")
 cat(" CLIMATE RECONSTRUCTION MODEL DIAGNOSTICS\n")
