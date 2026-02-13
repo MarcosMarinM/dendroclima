@@ -1,5 +1,5 @@
 # ==============================================================================
-# 03_reconstruct_MASTER.R
+# 03_reconstruct_precip.R
 # Author: Marcos Marin-Martin
 # Date: 2026-02-11
 # Description:

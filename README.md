@@ -70,7 +70,7 @@ install.packages(c(
 1.  **Setup**: Open a project in RStudio.
 6.  **Configuration**: 
     *   Navigate to the script you wish to run.
-    *   Locate the **PARAMETRES** section at the top of the script.
+    *   Locate the **PARAMETERS** section at the top of the script.
     *   **IMPORTANT**: All file paths have been replaced with `PLACEHOLDER/path/to/...`. You **MUST** update these paths to match your local system structure before running any script.
     *   Libraries are now consolidated at the top of each script. Ensure you have all required packages installed.
 7.  **Execution**: Run scripts sequentially following the directory numbers (01 -> 06).
