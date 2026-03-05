@@ -16,9 +16,14 @@
 #   - Reduction of Error (RE)
 #   - Coefficient of Efficiency (CE)
 #
-#   Input:
-#   - _DATA.txt file produced by 03_reconstruct_precip.R
-#     Required columns: year, res, std, precipitation, rec_lineal, rec_log
+#   Supports two input modes:
+#   - Pipeline mode: reads the _DATA.txt file from 01_main_reconstruction.R.
+#   - Standalone mode: reads raw chronology + daily precipitation files and
+#     computes the seasonal accumulation internally.
+#
+#   The input mode is selected automatically: if INPUT_FILE_RECON points to a
+#   valid file, pipeline mode is used. Otherwise, standalone mode requires
+#   INPUT_CHRONO_FILE and INPUT_PRECIP_FILE.
 #
 #   Output:
 #   - 4-panel PDF plot (Calibration/Verification for both rounds)
@@ -27,15 +32,30 @@
 # --- 0. LIBRARIES ---
 suppressPackageStartupMessages({
   library(dplyr)
+  library(lubridate)
 })
 
 # ==============================================================================
 # 1. PARAMETERS
 # ==============================================================================
 
-INPUT_FILE_RECON <- 'PLACEHOLDER/path/to/reconstruction_DATA.txt'
-OUTPUT_PDF_FILE  <- 'PLACEHOLDER/path/to/calibration_verification_plot.pdf'
+# --- OUTPUT ---
+OUTPUT_PDF_FILE <- 'PLACEHOLDER/path/to/calibration_verification_plot.pdf'
 
+# --- PIPELINE MODE: path to _DATA.txt from 01_main_reconstruction.R ---
+INPUT_FILE_RECON <- 'PLACEHOLDER/path/to/reconstruction_DATA.txt'
+
+# --- STANDALONE MODE: raw input files ---
+INPUT_CHRONO_FILE <- 'PLACEHOLDER/path/to/chronology.txt'
+INPUT_PRECIP_FILE <- 'PLACEHOLDER/path/to/daily_precip.txt'
+
+# Accumulation window for standalone mode (growth year: Aug 16 to Jun 30)
+WIN_START_MONTH <- 8
+WIN_START_DAY   <- 16
+WIN_END_MONTH   <- 6
+WIN_END_DAY     <- 30
+
+# --- MODEL OPTIONS ---
 # Which chronology index to use as predictor: "res" or "std"
 CHRONO_TYPE <- "res"
 
@@ -75,30 +95,71 @@ fit_and_predict <- function(cal_df, ver_df, model_type) {
 # 3. LOAD DATA
 # ==============================================================================
 
-tryCatch({
+# Detect input mode
+use_pipeline <- !grepl("PLACEHOLDER", INPUT_FILE_RECON, fixed = TRUE) &&
+  file.exists(INPUT_FILE_RECON)
+
+if (use_pipeline) {
+  # --- PIPELINE MODE ---
+  message("Using pipeline mode: reading ", INPUT_FILE_RECON)
+
   raw <- read.table(INPUT_FILE_RECON, header = TRUE, sep = "\t",
                     stringsAsFactors = FALSE)
-  cat("Data loaded correctly. Columns found:", paste(names(raw), collapse = ", "), "\n")
-}, error = function(e) {
-  stop("Error loading file. Check path and separator. Error: ", e$message)
-})
+  cat("Data loaded. Columns found:", paste(names(raw), collapse = ", "), "\n")
 
-# Coerce types
-raw$year          <- as.numeric(raw$year)
-raw$precipitation <- as.numeric(raw$precipitation)
-raw$res           <- as.numeric(raw$res)
-raw$std           <- as.numeric(raw$std)
+  raw$year          <- as.numeric(raw$year)
+  raw$precipitation <- as.numeric(raw$precipitation)
+  raw[[CHRONO_TYPE]] <- as.numeric(raw[[CHRONO_TYPE]])
+
+  df_inst <- raw |>
+    filter(!is.na(precipitation)) |>
+    select(year, precipitation, ring = all_of(CHRONO_TYPE)) |>
+    filter(!is.na(ring)) |>
+    arrange(year)
+
+} else {
+  # --- STANDALONE MODE ---
+  if (grepl("PLACEHOLDER", INPUT_CHRONO_FILE, fixed = TRUE) ||
+      !file.exists(INPUT_CHRONO_FILE)) {
+    stop("No valid input found. Set INPUT_FILE_RECON (pipeline) or ",
+         "INPUT_CHRONO_FILE + INPUT_PRECIP_FILE (standalone).")
+  }
+  message("Using standalone mode: reading raw chronology + precipitation files.")
+
+  crono <- read.table(INPUT_CHRONO_FILE, header = TRUE)
+  prec  <- read.table(INPUT_PRECIP_FILE, header = TRUE)
+
+  prec$date <- ymd(prec$date)
+
+  prec <- prec |>
+    mutate(
+      year  = year(date),
+      month = month(date),
+      day   = day(date),
+      growth_year = case_when(
+        month == WIN_START_MONTH & day >= WIN_START_DAY ~ year + 1L,
+        month > WIN_START_MONTH                         ~ year + 1L,
+        month < WIN_END_MONTH                           ~ year,
+        month == WIN_END_MONTH & day <= WIN_END_DAY     ~ year,
+        TRUE                                            ~ NA_integer_
+      )
+    )
+
+  prec_acum <- prec |>
+    filter(!is.na(growth_year)) |>
+    group_by(growth_year) |>
+    summarise(precipitation = sum(precipitation, na.rm = TRUE), .groups = "drop")
+
+  df_inst <- crono |>
+    inner_join(prec_acum, by = c("year" = "growth_year")) |>
+    filter(!is.na(.data[[CHRONO_TYPE]])) |>
+    select(year, precipitation, ring = all_of(CHRONO_TYPE)) |>
+    arrange(year)
+}
 
 # ==============================================================================
 # 4. PREPARE CALIBRATION DATASET
 # ==============================================================================
-
-# Keep only the instrumental period (years with observed precipitation)
-df_inst <- raw |>
-  filter(!is.na(precipitation)) |>
-  select(year, precipitation, ring = all_of(CHRONO_TYPE)) |>
-  filter(!is.na(ring)) |>
-  arrange(year)
 
 if (nrow(df_inst) < 20) {
   stop("Less than 20 overlapping years found. Cannot perform split-period validation.")
@@ -231,24 +292,24 @@ plot_panel <- function(df, title_main, subtitle, col_pred = "red") {
 }
 
 # Panel 1: Round A - Calibration (Early)
-title_a_cal <- bquote(bold("Calibration A") ~ "(" * .(period1_years[1]) * "–" * .(period1_years[2]) * ")")
+title_a_cal <- bquote(bold("Calibration A") ~ "(" * .(period1_years[1]) * "\u2013" * .(period1_years[2]) * ")")
 plot_panel(results_cal1, title_a_cal,
            bquote(R^2 == .(format_r2(r2_cal1))))
 legend("bottomright", legend = c("Observed", "Predicted"),
        col = c("black", "red"), lty = c(1, 2), bty = "n", cex = cex_legend_val)
 
 # Panel 2: Round A - Verification (Late)
-title_a_ver <- bquote(bold("Verification A") ~ "(" * .(period2_years[1]) * "–" * .(period2_years[2]) * ")")
+title_a_ver <- bquote(bold("Verification A") ~ "(" * .(period2_years[1]) * "\u2013" * .(period2_years[2]) * ")")
 plot_panel(results_ver1, title_a_ver,
            bquote(R^2 == .(format_r2(r2_ver1)) ~ "|" ~ .(format_rece(re_ver1, ce_ver1))))
 
 # Panel 3: Round B - Verification (Early)
-title_b_ver <- bquote(bold("Verification B") ~ "(" * .(period1_years[1]) * "–" * .(period1_years[2]) * ")")
+title_b_ver <- bquote(bold("Verification B") ~ "(" * .(period1_years[1]) * "\u2013" * .(period1_years[2]) * ")")
 plot_panel(results_ver2, title_b_ver,
            bquote(R^2 == .(format_r2(r2_ver2)) ~ "|" ~ .(format_rece(re_ver2, ce_ver2))))
 
 # Panel 4: Round B - Calibration (Late)
-title_b_cal <- bquote(bold("Calibration B") ~ "(" * .(period2_years[1]) * "–" * .(period2_years[2]) * ")")
+title_b_cal <- bquote(bold("Calibration B") ~ "(" * .(period2_years[1]) * "\u2013" * .(period2_years[2]) * ")")
 plot_panel(results_cal2, title_b_cal,
            bquote(R^2 == .(format_r2(r2_cal2))))
 
@@ -259,3 +320,4 @@ par(mfrow = c(1, 1), mar = c(5.1, 4.1, 4.1, 2.1), oma = c(0, 0, 0, 0),
     mgp = c(3, 1, 0), cex.axis = 1, cex.lab = 1, cex.main = 1.2, cex = 1)
 
 cat(sprintf("\nDone. Plot saved to '%s'.\n", OUTPUT_PDF_FILE))
+
