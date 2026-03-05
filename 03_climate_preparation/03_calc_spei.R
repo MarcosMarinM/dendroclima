@@ -1,5 +1,5 @@
 # ==============================================================================
-# 08_calc_spei.R
+# 03_calc_spei.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:

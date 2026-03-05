@@ -1,5 +1,5 @@
 # ==============================================================================
-# 05_extract_slp.R
+# 04_extract_slp.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:
@@ -30,6 +30,10 @@ INPUT_FILE  <- "PLACEHOLDER/path/to/slp.txt"
 OUTPUT_FILE <- "PLACEHOLDER/path/to/output.txt"
 TARGET_LAT  <- 13.51
 TARGET_LON  <- 2.1
+
+# Año de origen de la serie temporal en el fichero de entrada.
+# El campo 'time' se interpreta como meses desde enero de este año.
+YEAR_ORIGIN <- 1658
 # ------------------------------
 
 
@@ -50,7 +54,7 @@ seleccionados <- datos %>%
 # Convertir tiempo a año y mes
 seleccionados <- seleccionados %>%
   mutate(
-    año = 1658 + floor((time + 11) / 12),
+    año = YEAR_ORIGIN + floor((time + 11) / 12),
     mes = ((time + 11) %% 12) + 1
   )
 
@@ -81,4 +85,4 @@ tabla_final <- tabla_final %>%
 
 # Escribir archivo de salida
 write.table(tabla_final, OUTPUT_FILE, sep = "\t", 
-            row.names = FALSE, col.names = FALSE, na = "NA")
+            row.names = FALSE, col.names = TRUE, quote = FALSE, na = "NA")

@@ -101,16 +101,14 @@ get_sfc <- function(file, var, box) {
   idx_lat <- which(lat >= box$lat[1] & lat <= box$lat[2])
   idx_lon <- c(which(lon >= box$lon[1]), which(lon <= box$lon[2]))
   
-  # Carga DIRECTA sin buscar niveles (Start: Lon, Lat, Time)
-  raw <- tryCatch({
-    ncvar_get(nc, var, start=c(min(idx_lon), min(idx_lat), 1), 
-              count=c(length(idx_lon), length(idx_lat), -1))
-  }, error = function(e) return(NULL))
-  
+  # Read all data, then subset (safe for cross-meridian lon boxes)
+  raw <- tryCatch(ncvar_get(nc, var), error = function(e) return(NULL))
   if(is.null(raw)) return(NULL)
   
+  val_box <- raw[idx_lon, idx_lat, ]
+  
   # Promedio espacial
-  series <- apply(raw, 3, mean, na.rm=TRUE)
+  series <- apply(val_box, 3, mean, na.rm=TRUE)
   
   df <- data.frame(year=as.numeric(format(dates,"%Y")), month=as.numeric(format(dates,"%m")), val=series)
   df$clim_year <- ifelse(df$month==12, df$year+1, df$year)

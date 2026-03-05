@@ -26,6 +26,7 @@ library(terra)
 # --- PARÁMETROS A MODIFICAR ---
 RUTA_CARPETA   <- "PLACEHOLDER/path/to/terraclimate_files/"
 ARCHIVO_SALIDA <- 'PLACEHOLDER/path/to/output_file.txt'
+CODIGO_VAR     <- "vpd"   # Nombre de la variable climática (ej: "vpd", "ppt", "tmax")
 
 # Coordenadas del punto (WGS84)
 MI_LON <- -5.07259
@@ -42,10 +43,9 @@ archivos_nc <- list.files(path = RUTA_CARPETA, pattern = "\\.nc$", full.names = 
 archivos_nc <- sort(archivos_nc)
 
 # Crear un contenedor para los resultados
-# Cambiamos el nombre de la columna a 'vpd'
-resultados_df <- data.frame(date = character(), vpd = numeric(), stringsAsFactors = FALSE)
+resultados_df <- data.frame(date = character(), value = numeric(), stringsAsFactors = FALSE)
 
-cat("Iniciando extracción de VPD Procesando", length(archivos_nc), "archivos...\n")
+cat(paste0("Iniciando extracción de ", toupper(CODIGO_VAR), ". Procesando ", length(archivos_nc), " archivos...\n"))
 
 # Bucle archivo por archivo
 for (archivo in archivos_nc) {
@@ -53,12 +53,10 @@ for (archivo in archivos_nc) {
   # 1. Cargar el raster
   r <- rast(archivo)
   
-  # 2. Extraer el valor del punto (CORREGIDO AQUÍ)
-  # Usamos terra::extract para evitar conflictos con otros paquetes
+  # 2. Extraer el valor del punto
+  # terra::extract devuelve un data.frame cuya primera columna es ID
   valores <- terra::extract(r, cbind(MI_LON, MI_LAT))
-  
-  # 'valores' será un data.frame con 1 fila y 12 columnas
-  vpd_vals <- as.numeric(t(valores))
+  vals <- as.numeric(valores[1, -1])  # Eliminar columna ID
   
   # 3. Generar las fechas
   year_str <- regmatches(basename(archivo), regexpr("\\d{4}", basename(archivo)))
@@ -71,16 +69,19 @@ for (archivo in archivos_nc) {
   fechas <- sprintf("%s%02d01", year_str, 1:12)
   
   # 4. Unir y guardar
-  temp_df <- data.frame(date = fechas, vpd = vpd_vals)
+  temp_df <- data.frame(date = fechas, value = vals)
   resultados_df <- rbind(resultados_df, temp_df)
   
-  rm(r, valores, vpd_vals)
+  rm(r, valores, vals)
 }
 
 # --- 3. GUARDAR RESULTADO FINAL ---
 
+# Renombrar columna 'value' al nombre real de la variable
+names(resultados_df)[2] <- CODIGO_VAR
+
 # Verificar si hay NAs
-if (any(is.na(resultados_df$vpd))) {
+if (any(is.na(resultados_df[[CODIGO_VAR]]))) {
   cat("¡Atención! Hay valores NA. Verifica que las coordenadas caigan en tierra firme.\n")
 }
 

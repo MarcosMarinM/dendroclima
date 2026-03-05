@@ -1,12 +1,11 @@
 # ==============================================================================
-# 05_correlacion_espacial_eobs.R
+# 07_spatial_corr_eobs.R
 # Autor: Marcos Marín-Martín
 # Fecha: 2026-02-09
 # Descripción: Correlación espacial entre cronologías y precipitación acumulada (NetCDF E-OBS).
 #              Genera mapas de correlación y destaca el píxel de máxima correlación.
 # ==============================================================================
 
-# --- PARÁMETROS A MODIFICAR ---
 # --- PARÁMETROS A MODIFICAR ---
 NC_FILE              <- "PLACEHOLDER/path/to/eobs01.nc"
 CHRONOLOGY_FILE_PATH <- "PLACEHOLDER/path/to/chronology.txt"
@@ -28,10 +27,7 @@ library(rnaturalearth)
 library(rnaturalearthdata)
 library(PCICt)
 
-# --- 1. Gestión de Paquetes ---
-
 cat("Paquetes necesarios cargados.\n")
-
 
 # --- 3. Abrir archivo NetCDF (SIN leer 'rr' aún y SIN cerrarlo) ---
 tryCatch({

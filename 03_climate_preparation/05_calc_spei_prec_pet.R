@@ -1,5 +1,5 @@
 # ==============================================================================
-# 10_calc_spei_prec_pet.R
+# 05_calc_spei_prec_pet.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:
@@ -28,9 +28,9 @@ library(SPEI)
 
 # --- 2. CONFIGURACIÓN Y CARGA DE DATOS ---
 
-path_prec <- 'PLACEHOLDER/path/to/precip_data.txt'
-# Asumo que guardaste el PET extraído en esta ruta o similar
-path_pet  <- 'PLACEHOLDER/path/to/pet_data.txt'
+path_prec       <- 'PLACEHOLDER/path/to/precip_data.txt'
+path_pet        <- 'PLACEHOLDER/path/to/pet_data.txt'
+OUTPUT_SPEI_FILE <- 'PLACEHOLDER/path/to/output_spei.txt'
 
 # Leer archivos
 df_prec <- read.table(path_prec, header = TRUE, sep = "\t")
@@ -82,19 +82,16 @@ df_final <- cbind(
   as.data.frame(spei_matrix)       # Añadimos las 24 columnas de SPEI
 )
 
-# Definir nombre de salida
-archivo_salida <- "cdz_spei_completo_1_24.txt"
-
 # Guardar en disco
 write.table(df_final, 
-            file = archivo_salida, 
+            file = OUTPUT_SPEI_FILE, 
             sep = "\t", 
             row.names = FALSE, 
             quote = FALSE)
 
 cat("==============================================================================\n")
 cat("¡Cálculo finalizado!\n")
-cat("Archivo guardado como:", archivo_salida, "\n")
+cat("Archivo guardado como:", OUTPUT_SPEI_FILE, "\n")
 cat("Contiene", ncol(df_final), "columnas (Date + Balance + 24 escalas SPEI).\n")
 cat("==============================================================================\n")
 

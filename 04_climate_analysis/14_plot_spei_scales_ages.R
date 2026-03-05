@@ -1,13 +1,11 @@
 # ==============================================================================
-# 04_grafico_escalas_spei_edades.R
+# 14_plot_spei_scales_ages.R
 # Autor: Marcos Marín-Martín
 # Fecha: 2026-02-09
 # Descripción: Calcula y visualiza correlaciones entre cronologías y SPEI.
 #              Análisis por grupos de edad y escalas temporales.
 # ==============================================================================
 
-# --- 0. Configuración y Carga de Librerías ---
-cat("--- 0. Cargando librerías necesarias ---\n")
 # --- 0. Configuración y Carga de Librerías ---
 cat("--- 0. Cargando librerías necesarias ---\n")
 library(dplyr)
@@ -18,8 +16,6 @@ library(readr)
 library(here)
 
 
-# --- PARÁMETROS A MODIFICAR ---
-# Rutas
 # --- PARÁMETROS A MODIFICAR ---
 # Rutas
 CHRONO_DIR <- "PLACEHOLDER/path/to/chrono_dir"

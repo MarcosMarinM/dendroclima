@@ -1,5 +1,5 @@
 # ==============================================================================
-# 14_reconstruct_nao.R
+# 09_reconstruct_nao.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:
@@ -84,4 +84,4 @@ nao_pivot <- nao_pivot %>%
   mutate(across(-año, ~ round(.x, 3)))
 
 # 7. Exportación sin encabezado
-write.table(nao_pivot, OUTPUT_FILE, sep = "\t", row.names = FALSE, col.names = FALSE)
+write.table(nao_pivot, OUTPUT_FILE, sep = "\t", row.names = FALSE, col.names = TRUE, quote = FALSE)

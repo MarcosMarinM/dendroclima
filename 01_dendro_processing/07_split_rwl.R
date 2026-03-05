@@ -75,6 +75,9 @@ lista_sitios <- meta %>%
 
 cat(">>> Iniciando la separación de series...\n\n")
 
+archivos_creados <- 0
+series_totales_exportadas <- 0
+
 # Bucle para procesar cada sitio
 for (i in 1:nrow(lista_sitios)) {
   

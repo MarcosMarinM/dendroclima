@@ -77,25 +77,19 @@ get_netcdf_val <- function(file, var, level, box) {
   
   if(length(idx_lat) == 0 || length(idx_lon) == 0) return(NULL)
   
-  # 3. Configurar lectura según dimensiones
+  # 3. Read all data then subset (safe for cross-meridian lon boxes)
   if(has_level) {
     levs <- ncvar_get(nc, "level")
     lev_idx <- which.min(abs(levs - level))
-    start_v <- c(min(idx_lon), min(idx_lat), lev_idx, 1)
-    count_v <- c(length(idx_lon), length(idx_lat), 1, -1)
+    raw <- tryCatch(ncvar_get(nc, var, start=c(1,1,lev_idx,1), count=c(-1,-1,1,-1)), error=function(e) NULL)
   } else {
-    # Superficie (sin nivel)
-    start_v <- c(min(idx_lon), min(idx_lat), 1)
-    count_v <- c(length(idx_lon), length(idx_lat), -1)
+    raw <- tryCatch(ncvar_get(nc, var), error=function(e) NULL)
   }
-  
-  # 4. Leer y Promediar
-  raw <- tryCatch(ncvar_get(nc, var, start=start_v, count=count_v), error=function(e) NULL)
   if(is.null(raw)) return(NULL)
   
-  # Detectar dimensión temporal (siempre es la última)
-  time_dim <- length(dim(raw))
-  series <- apply(raw, time_dim, mean, na.rm=TRUE)
+  # 4. Subset and average over space
+  val_box <- raw[idx_lon, idx_lat, ]
+  series <- apply(val_box, 3, mean, na.rm=TRUE)
   
   # 5. Formatear fechas
   time <- ncvar_get(nc,"time"); dates <- as.Date(time/24, origin="1800-01-01")

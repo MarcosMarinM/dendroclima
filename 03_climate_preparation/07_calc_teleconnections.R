@@ -1,5 +1,5 @@
 # ==============================================================================
-# 12_calc_teleconnections.R
+# 07_calc_teleconnections.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:

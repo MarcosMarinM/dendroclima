@@ -11,12 +11,11 @@
 #   Methodology:
 #   1. Classification by Age:
 #      - Young (<50 years): Spline (50% length).
-#      - Mature (50-100 years): Spline (67% length).
+#      - Mature (50-100 years): Spline (50% length).
 #      - Old (>100 years): Modified Negative Exponential (ModNegExp) to preserve 
 #        long-term trends (geometric growth).
-#   2. Spline Stiffness: Calculates 'nyrs' (spline stiffness) as a percentage 
-#      of series length to avoid overfitting young trees or filtering out meaningful 
-#      low-frequency signals in older trees.
+#   2. Spline Stiffness: For young/mature series, 'nyrs' is set to 50% of series
+#      length (minimum 20 years) to avoid overfitting.
 #
 #   Inputs: 
 #   - Segmented RWL file (e.g., 'IBE_TRW_mid.rwl').
@@ -56,16 +55,10 @@ choose_detrend_method <- function(series_age) {
   }
 }
 
-# Función para calcular nyrs adaptativo basado en la longitud de la serie
+# Función para calcular nyrs adaptativo basado en la longitud de la serie.
+# Solo se aplica a series que van a Spline (< 100 años).
 calculate_nyrs_adaptive <- function(series_length) {
-  # Ajustar nyrs como porcentaje de la longitud de la serie:
-  # - 67% para series > 100 años (equilibrio señal/ruido)
-  # - 50% para series <= 100 años (evitar overfitting)
-  # - Mínimo absoluto de 20 años (para series muy cortas)
-  nyrs_custom <- ifelse(series_length > 100, 
-                        round(0.67 * series_length), 
-                        round(0.50 * series_length))
-  
+  nyrs_custom <- round(0.50 * series_length)
   nyrs_custom <- max(nyrs_custom, 20)  # Nunca menos de 20 años
   return(nyrs_custom)
 }

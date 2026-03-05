@@ -166,7 +166,7 @@ if (EJECUTAR_DETRENDING) {
           rwi_res_matrix[!is.na(rwi_matrix[, i]), i] <- ar_fit$resid + mean(series)
         }
       }
-    }, error = function(e) { calculate_res <- FALSE })
+    }, error = function(e) { calculate_res <<- FALSE })
     
     if (calculate_res) {
       nombre_rwi_res <- paste0(nombre_rwl_base, "_", name, "_RES.rwi")

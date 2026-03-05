@@ -1,5 +1,5 @@
 # ==============================================================================
-# 13_sweep_seasonal_nao.R
+# 08_sweep_seasonal_nao.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:
@@ -33,6 +33,11 @@ library(reshape2)
 # --- PARÁMETROS A MODIFICAR ---
 RUTA_PRECIP <- "PLACEHOLDER/path/to/precipitation.txt"
 RUTA_NAO    <- "PLACEHOLDER/path/to/nao_index.txt"
+
+# Nombres de las columnas de precipitación a correlacionar con la NAO.
+# Deben existir como columnas en el fichero de precipitación.
+COLS_PRECIP <- c("atlas" = "Atlas", "teruel" = "Teruel")
+# Formato: c("nombre_columna_en_fichero" = "Etiqueta para gráfico", ...)
 # ------------------------------
 
 # --- 1. CARGA DE DATOS ---
@@ -45,25 +50,22 @@ precip <- read.table(RUTA_PRECIP, header = TRUE, sep = "\t") # Ajusta sep="" si 
 
 # --- 2. INGENIERÍA DE VARIABLES (CREAR ESTACIONES) ---
 
-# Necesitamos el Diciembre del año anterior para calcular el invierno (DJF)
-# Creamos una columna 'Dec_prev' desplazando la columna Dec una posición abajo
+# Necesitamos Oct, Nov, Dec del año anterior para ventanas cross-year
+nao_raw$Oct_prev <- lag(nao_raw$Oct, 1)
+nao_raw$Nov_prev <- lag(nao_raw$Nov, 1)
 nao_raw$Dec_prev <- lag(nao_raw$Dec, 1)
 
-# Calculamos medias estacionales (puedes añadir más combinaciones aquí)
+# Calculamos medias estacionales
 nao_calc <- nao_raw %>%
   rowwise() %>%
   mutate(
-    # Estaciones Clásicas
-    Win_DJF = mean(c(Dec_prev, Jan, Feb), na.rm = TRUE), # Invierno Meteorológico
-    Win_JFM = mean(c(Jan, Feb, Mar), na.rm = TRUE),      # Invierno Tardío
-    Spr_MAM = mean(c(Mar, Apr, May), na.rm = TRUE),      # Primavera
-    
-    # Ventanas largas
-    Wet_ONDJFM = mean(c(Oct, Nov, Dec, Jan, Feb, Mar), na.rm = TRUE), # Semestre húmedo
-    
-    # Meses individuales clave (usamos los ya existentes)
+    Win_DJF    = mean(c(Dec_prev, Jan, Feb), na.rm = TRUE),
+    Win_JFM    = mean(c(Jan, Feb, Mar), na.rm = TRUE),
+    Spr_MAM    = mean(c(Mar, Apr, May), na.rm = TRUE),
+    # Semestre húmedo: Oct-Dic del año ANTERIOR + Ene-Mar del año actual
+    Wet_ONDJFM = mean(c(Oct_prev, Nov_prev, Dec_prev, Jan, Feb, Mar), na.rm = TRUE),
   ) %>%
-  select(Year, Jan, Feb, Mar, Apr, May, Jun, Oct, Nov, Dec, 
+  select(Year, Jan, Feb, Mar, Apr, May, Jun, Oct, Nov, Dec,
          Win_DJF, Win_JFM, Spr_MAM, Wet_ONDJFM) %>%
   ungroup()
 
@@ -92,10 +94,15 @@ calcular_correlaciones <- function(serie_precip, nombre_sitio) {
   return(resultados)
 }
 
-cor_atlas  <- calcular_correlaciones(df_total$atlas, "Atlas")
-cor_teruel <- calcular_correlaciones(df_total$teruel, "Teruel")
-
-df_corr <- rbind(cor_atlas, cor_teruel)
+df_corr <- do.call(rbind, lapply(seq_along(COLS_PRECIP), function(i) {
+  col_name  <- names(COLS_PRECIP)[i]
+  col_label <- COLS_PRECIP[i]
+  if (!col_name %in% names(df_total)) {
+    warning(paste("Column", col_name, "not found in precipitation file. Skipping."))
+    return(NULL)
+  }
+  calcular_correlaciones(df_total[[col_name]], col_label)
+}))
 
 # Crear columna de significancia para el gráfico (* si p < 0.05)
 df_corr$Signif <- ifelse(df_corr$P_val < 0.05, "*", "")
@@ -120,8 +127,8 @@ print(p_heat)
 
 # --- 5. RESULTADOS EN TEXTO ---
 cat("\n--- MEJORES CORRELACIONES ENCONTRADAS ---\n")
-top_atlas <- df_corr %>% filter(Sitio == "Atlas") %>% arrange(P_val) %>% head(1)
-top_teruel <- df_corr %>% filter(Sitio == "Teruel") %>% arrange(P_val) %>% head(1)
-
-cat(sprintf("Mejor señal para ATLAS: %s (r = %.3f, p = %.4f)\n", top_atlas$Variable, top_atlas$Cor, top_atlas$P_val))
-cat(sprintf("Mejor señal para TERUEL: %s (r = %.3f, p = %.4f)\n", top_teruel$Variable, top_teruel$Cor, top_teruel$P_val))
+for (label in unique(df_corr$Sitio)) {
+  top <- df_corr %>% filter(Sitio == label) %>% arrange(P_val) %>% head(1)
+  cat(sprintf("Mejor señal para %s: %s (r = %.3f, p = %.4f)\n",
+              label, top$Variable, top$Cor, top$P_val))
+}

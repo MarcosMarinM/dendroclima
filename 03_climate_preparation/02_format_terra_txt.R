@@ -1,5 +1,5 @@
 # ==============================================================================
-# 07_format_terra_txt.R
+# 02_format_terra_txt.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:
@@ -26,6 +26,10 @@
 INPUT_FILE  <- "PLACEHOLDER/path/to/input_terra_data.txt"
 LAT_MUESTRA <- 39.901
 LON_MUESTRA <- 16.228
+
+# Año y mes de inicio de la serie temporal en el fichero de entrada
+START_YEAR  <- 1958
+START_MONTH <- 1
 # ------------------------------
 
 # Cargar librerías
@@ -56,7 +60,7 @@ procesar_datos <- function(input_file, lat_muestra, lon_muestra) {
   
   # Obtener las fechas únicas y generar las nuevas fechas
   unique_dates <- unique(data$date)
-  new_dates <- generate_dates(1958, 1, length(unique_dates))
+  new_dates <- generate_dates(START_YEAR, START_MONTH, length(unique_dates))
   
   # Crear un dataframe para mapear las fechas originales con las nuevas fechas
   date_mapping <- data.frame(original = unique_dates, new = new_dates)
@@ -90,7 +94,7 @@ procesar_datos <- function(input_file, lat_muestra, lon_muestra) {
   datos_muestra_wide <- dcast(datos_muestra, year ~ month, value.var = "precipitation_sum")
   
   # Guardar el archivo modificado, sobrescribiendo el original sin encabezado
-  fwrite(datos_muestra_wide, file = input_file, sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE)
+  fwrite(datos_muestra_wide, file = input_file, sep = "\t", row.names = FALSE, col.names = TRUE, quote = FALSE)
 }
 
 # Llamar a la función con el archivo de entrada y las coordenadas

@@ -1,5 +1,5 @@
 # ==============================================================================
-# 01_climograma.R
+# 12_plot_climograph.R
 # Autor: Marcos Marín-Martín
 # Fecha: 2026-02-09
 # Descripción: Generador de climograma comparando temperatura media mensual y
@@ -19,7 +19,6 @@ YEAR_START <- 1985
 YEAR_END   <- 2015
 
 # Rutas de entrada
-# Rutas de entrada
 INPUT_TEMP_FILE   <- 'PLACEHOLDER/path/to/temp_data.txt'
 INPUT_PRECIP_FILE <- 'PLACEHOLDER/path/to/precip_data.txt'
 
@@ -35,13 +34,6 @@ COLOR_TEMP   <- "indianred2"  # Rojo para temp
 fixed_font_size_pt <- 9
 # ggplot's geom_text size parameter is roughly points / ggplot2::.pt
 geom_text_size_value <- fixed_font_size_pt / ggplot2::.pt
-
-# Function to process daily data to monthly
-# (Function remains the same as previous version)
-    group_by(month) %>%
-    summarise(mean_value = mean(value, na.rm = TRUE), .groups = "drop")
-  return(filtered_data)
-}
 
 process_climate_data <- function(path_data, data_type) {
   data <- read_tsv(path_data, col_types = cols()) %>%

@@ -41,7 +41,7 @@ for i, year in enumerate(years):
 # Cargar archivo de cronología
 chronology_data = np.genfromtxt(chronology_file_path, skip_header=1, missing_values='NA', filling_values=np.nan)
 
-# Filtrar los datos de cronología para los años 1950-1980 y usar la columna 'res'
+# Filtrar los datos de cronología para los años de interés y usar la columna 'res'
 chronology_years = chronology_data[:, 0]
 chronology_residuals = chronology_data[:, 2]
 mask = (chronology_years >= start_year) & (chronology_years <= end_year)
@@ -53,7 +53,16 @@ p_values = np.zeros((len(lat), len(lon)))
 
 for i in range(len(lat)):
     for j in range(len(lon)):
-        correlations[i, j], p_values[i, j] = pearsonr(filtered_chronology_residuals, accumulated_rr[:, i, j])
+        valid_mask = ~np.isnan(filtered_chronology_residuals) & ~np.isnan(accumulated_rr[:, i, j])
+        if np.sum(valid_mask) > 2:
+            s1 = filtered_chronology_residuals[valid_mask]
+            s2 = accumulated_rr[valid_mask, i, j]
+            if np.var(s1) > 0 and np.var(s2) > 0:
+                correlations[i, j], p_values[i, j] = pearsonr(s1, s2)
+            else:
+                correlations[i, j], p_values[i, j] = np.nan, np.nan
+        else:
+            correlations[i, j], p_values[i, j] = np.nan, np.nan
 
 # Filtrar R significativos a nivel de significancia 0.05 (95%) y solo valores positivos
 significant_r = np.where((p_values < 0.05) & (correlations > 0), correlations, np.nan)
@@ -85,3 +94,6 @@ max_r_latitude = lat[max_r_index[0]]
 max_r_longitude = lon[max_r_index[1]]
 
 print(f"El valor más alto de R es {max_r_value} en las coordenadas (latitud, longitud): ({max_r_latitude}, {max_r_longitude})")
+
+# Cerrar el dataset netCDF
+dataset.close()

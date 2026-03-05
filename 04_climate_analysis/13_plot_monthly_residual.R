@@ -1,5 +1,5 @@
 # ==============================================================================
-# 02_grafico_mes_cronoresidual.R
+# 13_plot_monthly_residual.R
 # Autor: Marcos Marín-Martín
 # Fecha: 2026-02-09
 # Descripción: Gráfica de correlaciones entre SPI-12 (Agosto) y RWI.
@@ -7,13 +7,11 @@
 # ==============================================================================
 
 # Instalar y cargar las librerías necesarias
-# Instalar y cargar las librerías necesarias
 library(ggplot2)
 library(tidyr)
 library(showtext)
 
 
-# --- PARÁMETROS A MODIFICAR ---
 # --- PARÁMETROS A MODIFICAR ---
 OUTPUT_DIR       <- 'PLACEHOLDER/path/to/output_dir'
 PLOT_WIDTH       <- 16  # Ancho del gráfico

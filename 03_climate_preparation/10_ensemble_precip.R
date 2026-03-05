@@ -1,5 +1,5 @@
 # ==============================================================================
-# 15_ensemble_precip.R
+# 10_ensemble_precip.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:
@@ -75,13 +75,8 @@ generar_ensemble_mensual <- function(carpeta_inputs, archivos_usar) {
       if (length(valores) == 0) {
         return(c(NA, NA))  # Devolver NA si no hay datos
       }
-      media <- mean(valores, na.rm = TRUE)
+      media   <- mean(valores, na.rm = TRUE)
       mediana <- median(valores, na.rm = TRUE)
-      # Si número par de valores, calcular mediana como media de los dos valores intermedios
-      if (length(valores) %% 2 == 0) {
-        valores_ordenados <- sort(valores)
-        mediana <- mean(valores_ordenados[c(length(valores) / 2, length(valores) / 2 + 1)])
-      }
       return(c(media, mediana))
     })
     
@@ -106,13 +101,13 @@ generar_ensemble_mensual <- function(carpeta_inputs, archivos_usar) {
   archivo_median <- file.path(carpeta_inputs, paste0("median_", nombre_datasets, ".txt"))
   archivo_mean <- file.path(carpeta_inputs, paste0("mean_", nombre_datasets, ".txt"))
   
-  # Guardar resultados en archivos .txt sin encabezado
+  # Guardar resultados en archivos .txt
   write.table(resultado_final[, c("Year", grep("Mean", colnames(resultado_final), value = TRUE))],
-              file = archivo_mean, row.names = FALSE, col.names = FALSE, sep = "\t", quote = FALSE)
+              file = archivo_mean, row.names = FALSE, col.names = TRUE, sep = "\t", quote = FALSE)
   write.table(resultado_final[, c("Year", grep("Median", colnames(resultado_final), value = TRUE))],
-              file = archivo_median, row.names = FALSE, col.names = FALSE, sep = "\t", quote = FALSE)
+              file = archivo_median, row.names = FALSE, col.names = TRUE, sep = "\t", quote = FALSE)
   
-  cat("Archivos generados con éxito (sin encabezado):\n")
+  cat("Archivos generados con éxito:\n")
   cat(" - ", archivo_median, "\n")
   cat(" - ", archivo_mean, "\n")
 }

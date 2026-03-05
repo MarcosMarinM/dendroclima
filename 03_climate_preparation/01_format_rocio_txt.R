@@ -1,5 +1,5 @@
 # ==============================================================================
-# 06_format_rocio_txt.R
+# 01_format_rocio_txt.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:
@@ -159,7 +159,7 @@ procesar_datos_completo <- function(input_path, output_path_daily, output_path_m
     monthly_wide <- dcast(monthly_sum, year ~ month, value.var = "monthly_precipitation")
     
     # Guardar el archivo mensual en la NUEVA ruta, SIN encabezado (como pedía el original para su output)
-    fwrite(monthly_wide, file = output_path_monthly, sep = "\t", row.names = FALSE, col.names = FALSE, quote = FALSE, na = "NA")
+    fwrite(monthly_wide, file = output_path_monthly, sep = "\t", row.names = FALSE, col.names = TRUE, quote = FALSE, na = "NA")
     message(paste("-> Archivo de salida MENSUAL generado con éxito en:", output_path_monthly))
     
   }, error = function(e) {

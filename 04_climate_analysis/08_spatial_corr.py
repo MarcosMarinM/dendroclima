@@ -53,7 +53,16 @@ p_values = np.zeros((precipitation.shape[1], precipitation.shape[2]))
 
 for i in range(precipitation.shape[1]):
     for j in range(precipitation.shape[2]):
-        correlations[i, j], p_values[i, j] = pearsonr(filtered_chronology_residuals, accumulated_precipitation[:, i, j])
+        valid_mask = ~np.isnan(filtered_chronology_residuals) & ~np.isnan(accumulated_precipitation[:, i, j])
+        if np.sum(valid_mask) > 2:
+            s1 = filtered_chronology_residuals[valid_mask]
+            s2 = accumulated_precipitation[valid_mask, i, j]
+            if np.var(s1) > 0 and np.var(s2) > 0:
+                correlations[i, j], p_values[i, j] = pearsonr(s1, s2)
+            else:
+                correlations[i, j], p_values[i, j] = np.nan, np.nan
+        else:
+            correlations[i, j], p_values[i, j] = np.nan, np.nan
 
 # Filtrar R significativos a nivel de significancia 0.05 (95%)
 significant_r = np.where(p_values < 0.05, correlations, np.nan)
@@ -87,3 +96,6 @@ plt.ylabel('Latitud')
 plt.title('Correlación espacial con precipitación acumulada (R significativa a nivel 0.05)')
 
 plt.show()
+
+# Cerrar el dataset netCDF
+dataset.close()

@@ -3,23 +3,20 @@
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:
-#   High-Frequency Standardisation (32-Year Spline).
-#   Applies a fixed 32-year cubic smoothing spline to all series.
-#
-#   Purpose:
-#   - To act as a high-pass filter, removing all low-frequency trends (biological 
-#     growth, decadal climate trends) and retaining only inter-annual to 
-#     short-term variability.
-#   - Ideal for analyzing high-frequency climate responses (e.g., extreme events, 
-#     annual correlation).
-#   - Corresponds to a standard dendrochronological "high-pass" configuration.
+#   Adaptive Detrending by Series Length.
+#   Applies different detrending methods depending on the length of each series:
+#     - >= 100 years: Spline (nyrs = 32)
+#     - >= 50 years:  Spline (nyrs = 20)
+#     - >= 30 years:  ModNegExp (fallback: Spline nyrs = 10)
+#     - < 30 years:   ModNegExp (fallback: Spline nyrs = 5)
 #
 #   Inputs: 
 #   - RWL file.
 #
 #   Outputs:
-#   - 32-year Spline Standardised Chronology (TXT, PDF).
+#   - Standardised Chronology (TXT, PDF).
 #   - RWI file.
+#   - SSS plot (PDF).
 # ==============================================================================
 
 # Cargar la librería dplR
@@ -28,6 +25,13 @@ library(dplR)
 # --- PARÁMETROS A MODIFICAR ---
 FILE_PATH_RWL <- 'PLACEHOLDER/path/to/input_data.rwl'
 OUTPUT_DIR    <- 'PLACEHOLDER/path/to/output_dir'
+
+# Nombres de salida
+output_chronology_txt <- "chronology_adaptive.txt"
+output_chronology_pdf <- "chronology_adaptive.pdf"
+output_rwi            <- "chronology_adaptive.rwi"
+output_sss_pdf        <- "sss_adaptive.pdf"
+# ------------------------------
 
 # Cargar los datos desde el archivo
 data <- read.rwl(FILE_PATH_RWL)

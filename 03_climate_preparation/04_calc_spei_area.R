@@ -1,5 +1,5 @@
 # ==============================================================================
-# 09_calc_spei_area.R
+# 04_calc_spei_area.R
 # Author: Marcos Marín-Martín
 # Date: 2026-02-09
 # Description:

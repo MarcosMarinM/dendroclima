@@ -30,37 +30,40 @@ OUTPUT_FILE_NAME <- "PLACEHOLDER/path/to/output.txt"
 # Establecer el directorio de trabajo
 setwd(DIR_TRABAJO)
 
-# Función para leer el archivo y extraer la información necesaria
+# Función para leer el archivo y extraer la información necesaria.
+# Parsea bloques entre KeyCode tags, buscando YearsToPith dentro de cada bloque.
+# Funciona independientemente del orden relativo de KeyCode y YearsToPith.
 parse_file <- function(file_path) {
   lines <- readLines(file_path)
-  series_list <- c()
-  pithoffset_list <- c()
-  pithoffset <- 1  # Valor por defecto
   
-  for (line in lines) {
-    if (grepl("KeyCode=", line)) {
-      series <- sub(".*KeyCode=", "", line)
-      series_list <- c(series_list, series)
-      pithoffset_list <- c(pithoffset_list, pithoffset)  # Añadir el valor anterior de pithoffset
-      pithoffset <- 1  # Reiniciar pithoffset al valor por defecto
-    }
-    if (grepl("YearsToPith=", line)) {
-      pithoffset <- as.numeric(sub(".*YearsToPith=", "", line))
+  # Find line indices where KeyCode appears
+  key_lines <- grep("KeyCode=", lines)
+  if (length(key_lines) == 0) stop("No se encontraron líneas con 'KeyCode=' en el archivo.")
+  
+  series_list <- character(length(key_lines))
+  pithoffset_list <- numeric(length(key_lines))
+  
+  for (i in seq_along(key_lines)) {
+    # Extract series name
+    series_list[i] <- sub(".*KeyCode=", "", lines[key_lines[i]])
+    
+    # Define the block of lines belonging to this series
+    start <- key_lines[i]
+    end <- if (i < length(key_lines)) key_lines[i + 1] - 1 else length(lines)
+    block <- lines[start:end]
+    
+    # Search for YearsToPith within the block
+    ytp_line <- grep("YearsToPith=", block, value = TRUE)
+    if (length(ytp_line) > 0) {
+      po <- as.numeric(sub(".*YearsToPith=", "", ytp_line[1]))
+      # Sumar 1 al offset (convención: YearsToPith=0 significa que se llegó al pith)
+      pithoffset_list[i] <- po + 1
+    } else {
+      pithoffset_list[i] <- 1  # Valor por defecto si no hay YearsToPith
     }
   }
   
-  # Eliminar el primer valor de pithoffset_list que es redundante
-  pithoffset_list <- pithoffset_list[-1]
-  
-  # Asegurarse de que ambos vectores tengan la misma longitud
-  if (length(series_list) != length(pithoffset_list)) {
-    pithoffset_list <- c(pithoffset_list, pithoffset)
-  }
-  
-  # Sumar 1 a todos los pithoffset excepto a los que son 1 porque están vacíos
-  pithoffset_list <- sapply(pithoffset_list, function(po) if (po != 1) po + 1 else po)
-  
-  return(data.frame(series = series_list, pithoffset = pithoffset_list))
+  data.frame(series = series_list, pithoffset = pithoffset_list)
 }
 
 # Leer el archivo y obtener los datos
